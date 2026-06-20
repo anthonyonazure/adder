@@ -50,6 +50,39 @@ export abstract class TorrentWebUI {
     abstract get isDirSupported(): boolean;
     abstract get isAddPausedSupported(): boolean;
 
+    /**
+     * Connect to the client and report what we found: whether it's reachable,
+     * and any labels/directories already in use that we can import into the
+     * config so the user doesn't have to type them by hand. The base
+     * implementation only does a reachability check (and reports capabilities);
+     * clients that can enumerate labels/dirs override this.
+     */
+    async discover(): Promise<DiscoveryResult> {
+        const connected = await this.testReachable();
+        return {
+            connected,
+            supportsLabels: this.isLabelSupported,
+            supportsDirs: this.isDirSupported,
+            labels: [],
+            dirs: [],
+            message: connected
+                ? "Connected. This client can't auto-import labels/directories; set them manually if needed."
+                : undefined,
+            error: connected ? undefined : "Couldn't reach the client. Check host, port, and the HTTPS toggle.",
+        };
+    }
+
+    /** True when the base URL answers with any HTTP response (even 401/404). */
+    protected async testReachable(): Promise<boolean> {
+        try {
+            // Raw fetch (not this.fetch): any HTTP status means the host is up.
+            await fetch(this.createBaseUrl(), { method: "GET" });
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     get isLabelDirChooserSupported(): boolean {
         return this.isLabelSupported || this.isDirSupported || this.isAddPausedSupported;
     }
@@ -112,6 +145,18 @@ export interface TorrentAddingResult {
     success: boolean;
     httpResponseCode: number;
     httpResponseBody: string | null;
+}
+
+export interface DiscoveryResult {
+    connected: boolean;
+    supportsLabels: boolean;
+    supportsDirs: boolean;
+    labels: string[];
+    dirs: string[];
+    // Friendly note on success (e.g. "Imported 4 labels, 2 directories").
+    message?: string;
+    // Set when the connection/probe failed.
+    error?: string;
 }
 
 export interface AutoLabelDirSetting {

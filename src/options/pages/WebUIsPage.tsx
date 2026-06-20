@@ -4,11 +4,38 @@ import ChipList from "../components/ChipList";
 import AutoLabelDirSettingsEditor from "../components/AutoLabelDirSettingsEditor";
 import Select from "../components/Select";
 import { Client, ClientClassByClient, ClientDisplayName, WebUIFactory } from "../../models/clients";
-import type { WebUISettings } from "../../models/webui";
+import type { DiscoveryResult, WebUISettings } from "../../models/webui";
+import { DiscoverWebUIMessage } from "../../models/messages";
+import { SEEDBOX_PROVIDERS, findProvider, CUSTOM_PROVIDER_ID } from "../../util/providers";
 import Toggle from "../components/Toggle";
 import { generateId } from "../../util/utils";
 
 const clientOptions = Object.values(Client).map(c => ({ value: c, label: ClientDisplayName[c] }));
+const providerOptions = SEEDBOX_PROVIDERS.map(p => ({ value: p.id, label: p.label }));
+
+// Round-trip a discovery probe through the service worker, where auth + CORS
+// shims live. Rejects only on a messaging-layer failure; a failed *probe* still
+// resolves (with connected:false and an error message) so the UI can show it.
+function discoverWebUI(settings: WebUISettings): Promise<DiscoveryResult> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ action: DiscoverWebUIMessage.action, settings }, (resp: any) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        reject(new Error(lastError.message));
+        return;
+      }
+      if (!resp || (resp.error && resp.connected === undefined)) {
+        reject(new Error(resp?.error ?? "No response from the extension service worker."));
+        return;
+      }
+      resolve(resp as DiscoveryResult);
+    });
+  });
+}
+
+function uniqueSorted(...lists: string[][]): string[] {
+  return Array.from(new Set(lists.flat().filter(Boolean))).sort();
+}
 
 function isClientSelected(client: Client | ""): client is Client {
   return !!client && client in ClientClassByClient;
@@ -141,8 +168,48 @@ interface WebUIDetailProps {
 
 function WebUIDetail({ webui, onChange, onRemove, onPromote, isPrimary }: WebUIDetailProps) {
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [providerId, setProviderId] = useState(CUSTOM_PROVIDER_ID);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverStatus, setDiscoverStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const clientChosen = isClientSelected(webui.client);
   const webUiInstance = clientChosen ? WebUIFactory.createWebUI(webui) : null;
+  const isRutorrent = webui.client === Client.RuTorrentWebUI;
+  const hostHint = findProvider(providerId)?.hostHint;
+
+  const applyProvider = (id: string) => {
+    setProviderId(id);
+    const preset = findProvider(id);
+    if (!preset || id === CUSTOM_PROVIDER_ID) return;
+    onChange({
+      ...webui,
+      port: preset.port ?? webui.port,
+      secure: preset.secure ?? webui.secure,
+      relativePath: preset.relativePath ?? webui.relativePath,
+    });
+  };
+
+  const handleConnectAndImport = async () => {
+    setDiscovering(true);
+    setDiscoverStatus(null);
+    try {
+      const result = await discoverWebUI(webui);
+      if (!result.connected) {
+        setDiscoverStatus({ ok: false, text: result.error ?? "Could not connect." });
+        return;
+      }
+      const labels = uniqueSorted(webui.labels, result.labels);
+      const dirs = uniqueSorted(webui.dirs, result.dirs);
+      onChange({ ...webui, labels, dirs });
+      const imported = (result.labels.length || result.dirs.length)
+        ? `Imported ${result.labels.length} label(s) and ${result.dirs.length} director(ies).`
+        : (result.message ?? "Connected.");
+      setDiscoverStatus({ ok: true, text: `Connected. ${imported}` });
+    } catch (e) {
+      setDiscoverStatus({ ok: false, text: (e as Error).message });
+    } finally {
+      setDiscovering(false);
+    }
+  };
 
   return (
     <div>
@@ -215,11 +282,24 @@ function WebUIDetail({ webui, onChange, onRemove, onPromote, isPrimary }: WebUID
         </div>
       ) : (
         <>
+          {/* Seedbox provider preset (ruTorrent): fills port/HTTPS/path so the
+              user only pastes their hostname. */}
+          {isRutorrent && (
+            <div style={{ marginBottom: 20, maxWidth: 360 }}>
+              <Select
+                label="Seedbox provider (optional preset)"
+                value={providerId}
+                changeable={true}
+                options={providerOptions}
+                onChange={applyProvider}
+              />
+            </div>
+          )}
           {/* Host + Port + Secure + Relative Path */}
           <div style={{ display: "flex", gap: 16, alignItems: "flex-end", marginBottom: 20, flexWrap: "wrap" }}>
             <div>
               <label style={{ fontWeight: 500, marginBottom: 4, display: "block" }}>Host</label>
-              <input type="text" value={webui.host} onChange={e => onChange({ ...webui, host: e.target.value })} style={{ ...fieldInputStyle, minWidth: 120 }} />
+              <input type="text" value={webui.host} placeholder={hostHint} onChange={e => onChange({ ...webui, host: e.target.value })} style={{ ...fieldInputStyle, minWidth: 120 }} />
             </div>
             <div>
               <label style={{ fontWeight: 500, marginBottom: 4, display: "block" }}>Port</label>
@@ -242,6 +322,31 @@ function WebUIDetail({ webui, onChange, onRemove, onPromote, isPrimary }: WebUID
               <label style={{ fontWeight: 500, marginBottom: 4, display: "block" }}>Password</label>
               <input type="password" value={webui.password} onChange={e => onChange({ ...webui, password: e.target.value })} style={{ ...fieldInputStyle, minWidth: 120 }} />
             </div>
+          </div>
+          {/* Connect & Import: test the connection and pull existing labels/dirs. */}
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 20, flexWrap: "wrap" }}>
+            <button
+              onClick={handleConnectAndImport}
+              disabled={discovering || !webui.host}
+              title={!webui.host ? "Enter a host first" : "Test the connection and import labels/directories"}
+              style={{
+                background: discovering ? "var(--rta-neutral, #5a6b5d)" : "var(--rta-success, #228B22)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 18px",
+                fontWeight: 700,
+                cursor: discovering || !webui.host ? "default" : "pointer",
+                opacity: !webui.host ? 0.6 : 1,
+              }}
+            >
+              {discovering ? "Connecting…" : "Connect & Import"}
+            </button>
+            {discoverStatus && (
+              <span style={{ fontSize: 13, fontWeight: 600, color: discoverStatus.ok ? "var(--rta-green-dark, #2e7d32)" : "var(--rta-danger, #B22222)" }}>
+                {discoverStatus.ok ? "✓ " : "✗ "}{discoverStatus.text}
+              </span>
+            )}
           </div>
           {/* Only show these fields if supported by the WebUI instance */}
           {webUiInstance?.isAddPausedSupported && (

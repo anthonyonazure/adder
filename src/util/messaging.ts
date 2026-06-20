@@ -11,8 +11,11 @@ import {
     UpdateActionBadgeText,
     SaveSettingsMessage,
     IUpdateActionBadgeTextMessage,
-    TestNotificationMessage
+    TestNotificationMessage,
+    DiscoverWebUIMessage,
+    IDiscoverWebUIMessage
 } from "../models/messages";
+import { discoverForSettings } from "./discovery";
 import { SerializedTorrent, Torrent, TorrentUploadConfig } from "../models/torrent";
 import { TorrentAddingResult, TorrentWebUI, WebUISettings } from "../models/webui";
 import { updateBadgeText } from "./action";
@@ -109,6 +112,13 @@ export function registerMessageListener(): void {
                             console.debug("IGetPreAddedTorrentAndSettingsResponse:", response);
                             finish(response);
                         })
+                        .catch(respondWithError);
+                    break;
+                }
+                case DiscoverWebUIMessage.action: {
+                    willRespondAsync = true;
+                    discoverForSettings((message as IDiscoverWebUIMessage).settings)
+                        .then(result => finish(result))
                         .catch(respondWithError);
                     break;
                 }

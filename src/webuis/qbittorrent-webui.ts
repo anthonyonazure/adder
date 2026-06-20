@@ -1,5 +1,5 @@
 import { Torrent, TorrentUploadConfig } from "../models/torrent";
-import { TorrentAddingResult, TorrentWebUI } from "../models/webui";
+import { DiscoveryResult, TorrentAddingResult, TorrentWebUI } from "../models/webui";
 
 export class QBittorrentWebUI extends TorrentWebUI {
     public override async sendTorrent(torrent: Torrent, config: TorrentUploadConfig): Promise<TorrentAddingResult> {
@@ -102,5 +102,58 @@ export class QBittorrentWebUI extends TorrentWebUI {
 
     get isAddPausedSupported(): boolean {
         return true;
+    }
+
+    public override async discover(): Promise<DiscoveryResult> {
+        try {
+            await this.authenticate();
+        } catch (error) {
+            return this.discoveryFailure(`Login failed: ${(error as Error)?.message ?? error}. Check username/password.`);
+        }
+
+        let response: Response;
+        try {
+            response = await fetch(this.createBaseUrl() + "/api/v2/torrents/categories", { method: "GET" });
+        } catch (error) {
+            return this.discoveryFailure(`Couldn't reach qBittorrent: ${(error as Error)?.message ?? error}`);
+        }
+
+        if (!response.ok) {
+            return this.discoveryFailure(`qBittorrent returned HTTP ${response.status} for categories.`);
+        }
+
+        const labels = new Set<string>();
+        const dirs = new Set<string>();
+        try {
+            // Shape: { "<name>": { name: string, savePath: string }, ... }
+            const categories = await response.json();
+            for (const key of Object.keys(categories ?? {})) {
+                const name = categories[key]?.name || key;
+                if (name) {
+                    labels.add(name);
+                }
+                const savePath = categories[key]?.savePath;
+                if (savePath) {
+                    dirs.add(savePath);
+                }
+            }
+        } catch {
+            return this.discoveryFailure("Connected, but couldn't parse the categories response.");
+        }
+
+        const sortedLabels = [...labels].sort();
+        const sortedDirs = [...dirs].sort();
+        return {
+            connected: true,
+            supportsLabels: true,
+            supportsDirs: true,
+            labels: sortedLabels,
+            dirs: sortedDirs,
+            message: `Imported ${sortedLabels.length} categor${sortedLabels.length === 1 ? "y" : "ies"} and ${sortedDirs.length} save path(s).`,
+        };
+    }
+
+    private discoveryFailure(error: string): DiscoveryResult {
+        return { connected: false, supportsLabels: true, supportsDirs: true, labels: [], dirs: [], error };
     }
 }

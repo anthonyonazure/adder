@@ -26,6 +26,10 @@ export const AddTorrentMessageWithLabelAndDir: IMessagable = {
     action: "addTorrentMessageWithLabelAndDir"
 }
 
+export const DiscoverWebUIMessage: IMessagable = {
+    action: "discoverWebUI"
+}
+
 export const GetPreAddedTorrentAndSettings: IMessagable = {
     action: "getPreAddedTorrentAndSettings"
 }
@@ -67,6 +71,10 @@ export interface IAddTorrentMessageWithLabelAndDir extends IMessagable {
 export interface IPreAddTorrentMessage extends IMessagable {
     url: string;
     webUiId?: string | null;
+}
+
+export interface IDiscoverWebUIMessage extends IMessagable {
+    settings: WebUISettings;
 }
 
 export interface IUpdateActionBadgeTextMessage extends IMessagable {
