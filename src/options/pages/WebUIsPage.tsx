@@ -6,7 +6,7 @@ import Select from "../components/Select";
 import { Client, ClientClassByClient, ClientDisplayName, WebUIFactory } from "../../models/clients";
 import type { DiscoveryResult, WebUISettings } from "../../models/webui";
 import { DiscoverWebUIMessage } from "../../models/messages";
-import { SEEDBOX_PROVIDERS, findProvider, CUSTOM_PROVIDER_ID } from "../../util/providers";
+import { SEEDBOX_PROVIDERS, findProvider, CUSTOM_PROVIDER_ID, parseRutorrentUrl } from "../../util/providers";
 import Toggle from "../components/Toggle";
 import { generateId } from "../../util/utils";
 
@@ -35,6 +35,24 @@ function discoverWebUI(settings: WebUISettings): Promise<DiscoveryResult> {
 
 function uniqueSorted(...lists: string[][]): string[] {
   return Array.from(new Set(lists.flat().filter(Boolean))).sort();
+}
+
+// Read the seedbox host/port/scheme/path from an already-open ruTorrent tab, so
+// the user never has to type their per-account hostname. Looks for any tab whose
+// path contains "rutorrent" and decomposes its URL into WebUI fields.
+function detectRutorrentFromTabs(): Promise<Partial<WebUISettings> | null> {
+  return new Promise(resolve => {
+    try {
+      chrome.tabs.query({}, tabs => {
+        if (chrome.runtime.lastError) { resolve(null); return; }
+        for (const tab of tabs ?? []) {
+          const parts = tab.url ? parseRutorrentUrl(tab.url) : null;
+          if (parts) { resolve(parts); return; }
+        }
+        resolve(null);
+      });
+    } catch { resolve(null); }
+  });
 }
 
 function isClientSelected(client: Client | ""): client is Client {
@@ -188,18 +206,43 @@ function WebUIDetail({ webui, onChange, onRemove, onPromote, isPrimary }: WebUID
     });
   };
 
+  const handleDetectFromTab = async (): Promise<WebUISettings | null> => {
+    const detected = await detectRutorrentFromTabs();
+    if (!detected?.host) {
+      setDiscoverStatus({ ok: false, text: "No open ruTorrent tab found. Open your seedbox ruTorrent in a browser tab, then click Detect." });
+      return null;
+    }
+    const updated = { ...webui, ...detected };
+    onChange(updated);
+    setDiscoverStatus({ ok: true, text: `Filled from open tab: ${detected.host}` });
+    return updated;
+  };
+
   const handleConnectAndImport = async () => {
     setDiscovering(true);
     setDiscoverStatus(null);
     try {
-      const result = await discoverWebUI(webui);
+      // No host yet? Pull it from an open ruTorrent tab before probing.
+      let effective = webui;
+      if (!effective.host) {
+        const detected = await detectRutorrentFromTabs();
+        if (detected?.host) {
+          effective = { ...webui, ...detected };
+          onChange(effective);
+        }
+      }
+      if (!effective.host) {
+        setDiscoverStatus({ ok: false, text: "No host. Open your ruTorrent in a browser tab (then I can detect it), or type the host above." });
+        return;
+      }
+      const result = await discoverWebUI(effective);
       if (!result.connected) {
         setDiscoverStatus({ ok: false, text: result.error ?? "Could not connect." });
         return;
       }
-      const labels = uniqueSorted(webui.labels, result.labels);
-      const dirs = uniqueSorted(webui.dirs, result.dirs);
-      onChange({ ...webui, labels, dirs });
+      const labels = uniqueSorted(effective.labels, result.labels);
+      const dirs = uniqueSorted(effective.dirs, result.dirs);
+      onChange({ ...effective, labels, dirs });
       const imported = (result.labels.length || result.dirs.length)
         ? `Imported ${result.labels.length} label(s) and ${result.dirs.length} director(ies).`
         : (result.message ?? "Connected.");
@@ -323,12 +366,31 @@ function WebUIDetail({ webui, onChange, onRemove, onPromote, isPrimary }: WebUID
               <input type="password" value={webui.password} onChange={e => onChange({ ...webui, password: e.target.value })} style={{ ...fieldInputStyle, minWidth: 120 }} />
             </div>
           </div>
-          {/* Connect & Import: test the connection and pull existing labels/dirs. */}
+          {/* Detect (read host from an open ruTorrent tab) + Connect & Import
+              (test the connection and pull existing labels/dirs). */}
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 20, flexWrap: "wrap" }}>
+            {isRutorrent && (
+              <button
+                onClick={handleDetectFromTab}
+                disabled={discovering}
+                title="Read the host/port/path from your open ruTorrent tab"
+                style={{
+                  background: "var(--rta-info, #4682B4)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "8px 16px",
+                  fontWeight: 700,
+                  cursor: discovering ? "default" : "pointer",
+                }}
+              >
+                Detect from open tab
+              </button>
+            )}
             <button
               onClick={handleConnectAndImport}
-              disabled={discovering || !webui.host}
-              title={!webui.host ? "Enter a host first" : "Test the connection and import labels/directories"}
+              disabled={discovering}
+              title="Test the connection and import labels/directories"
               style={{
                 background: discovering ? "var(--rta-neutral, #5a6b5d)" : "var(--rta-success, #228B22)",
                 color: "#fff",
@@ -336,8 +398,7 @@ function WebUIDetail({ webui, onChange, onRemove, onPromote, isPrimary }: WebUID
                 borderRadius: 8,
                 padding: "8px 18px",
                 fontWeight: 700,
-                cursor: discovering || !webui.host ? "default" : "pointer",
-                opacity: !webui.host ? 0.6 : 1,
+                cursor: discovering ? "default" : "pointer",
               }}
             >
               {discovering ? "Connecting…" : "Connect & Import"}

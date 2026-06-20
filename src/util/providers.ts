@@ -70,3 +70,38 @@ export const SEEDBOX_PROVIDERS: SeedboxProvider[] = [
 export function findProvider(id: string): SeedboxProvider | undefined {
     return SEEDBOX_PROVIDERS.find(p => p.id === id);
 }
+
+export interface DetectedUrlParts {
+    host: string;
+    port: number;
+    secure: boolean;
+    relativePath: string;
+}
+
+/**
+ * Decompose an open ruTorrent tab URL into WebUI connection fields. Returns null
+ * for anything that isn't a ruTorrent URL. The relative path keeps everything up
+ * to and including the "rutorrent" segment, so provider layouts that prefix the
+ * username (e.g. /<user>/rutorrent) are preserved.
+ */
+export function parseRutorrentUrl(rawUrl: string): DetectedUrlParts | null {
+    let url: URL;
+    try {
+        url = new URL(rawUrl);
+    } catch {
+        return null;
+    }
+    if (!/\/rutorrent/i.test(url.pathname)) {
+        return null;
+    }
+    const secure = url.protocol === "https:";
+    const lower = url.pathname.toLowerCase();
+    const end = lower.lastIndexOf("rutorrent") + "rutorrent".length;
+    const relativePath = url.pathname.slice(0, end).replace(/^\/+|\/+$/g, "");
+    return {
+        host: url.hostname,
+        port: url.port ? Number(url.port) : (secure ? 443 : 80),
+        secure,
+        relativePath,
+    };
+}
