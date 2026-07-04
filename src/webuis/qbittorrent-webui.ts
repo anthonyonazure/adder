@@ -1,5 +1,5 @@
 import { Torrent, TorrentUploadConfig } from "../models/torrent";
-import { TorrentAddingResult, TorrentWebUI } from "../models/webui";
+import { ExistingTorrent, TorrentAddingResult, TorrentWebUI } from "../models/webui";
 
 export class QBittorrentWebUI extends TorrentWebUI {
     public override async sendTorrent(torrent: Torrent, config: TorrentUploadConfig): Promise<TorrentAddingResult> {
@@ -90,6 +90,24 @@ export class QBittorrentWebUI extends TorrentWebUI {
         }).catch(error => {
             reject({ success: false, httpResponseCode: 0, httpResponseBody: error.message || null });
         });
+    }
+
+    public override get isListSupported(): boolean {
+        return true;
+    }
+
+    public override async listExistingTorrents(): Promise<ExistingTorrent[] | null> {
+        await this.authenticate();
+        const response = await this.fetch(this.createBaseUrl() + "/api/v2/torrents/info", { method: "GET" });
+        const list = await response.json() as Array<{ hash?: string; name?: string; category?: string; progress?: number }>;
+        return list
+            .map(t => ({
+                infoHash: (t.hash ?? "").toLowerCase(),
+                name: t.name,
+                label: t.category || undefined,
+                isComplete: typeof t.progress === "number" ? t.progress >= 1 : undefined,
+            }))
+            .filter(t => t.infoHash.length > 0);
     }
 
     get isLabelSupported(): boolean {

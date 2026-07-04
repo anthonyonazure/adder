@@ -2,8 +2,9 @@ import { TorrentWebUI } from "../models/webui";
 import OnClickData = chrome.contextMenus.OnClickData;
 import Tab = chrome.tabs.Tab;
 import { AddTorrentMessage, IAddTorrentMessage, IPreAddTorrentMessage, PreAddTorrentMessage } from "../models/messages";
-import { dispatchPreAddTorrent } from "./messaging";
+import { dispatchPreAddTorrent, openBulkAddForTab } from "./messaging";
 
+const BULK_ADD_MENU_ID = "bulk-add-from-page";
 let listener: any = null;
 
 export function createContextMenu(allWebUis: TorrentWebUI[]): void {
@@ -36,8 +37,16 @@ export function createContextMenu(allWebUis: TorrentWebUI[]): void {
         });
     }
 
+    chrome.contextMenus.create({
+        id: BULK_ADD_MENU_ID,
+        title: "Add multiple torrents from this page…",
+        contexts: ["page", "action"]
+    });
+
     listener = (onClickData: OnClickData, tab: Tab) => {
-        if (onClickData.menuItemId === "server-main") {
+        if (onClickData.menuItemId === BULK_ADD_MENU_ID) {
+            openBulkAddForTab(tab);
+        } else if (onClickData.menuItemId === "server-main") {
             createOnClick(allWebUis.length > 0 ? [allWebUis[0]] : [])(onClickData, tab);
         } else if (onClickData.menuItemId === "server-all") {
             createOnClick(allWebUis)(onClickData, tab);

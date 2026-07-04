@@ -59,5 +59,24 @@ describe("QBittorrentWebUI", () => {
         expect(ui.isLabelSupported).toBe(true);
         expect(ui.isDirSupported).toBe(true);
         expect(ui.isAddPausedSupported).toBe(true);
+        expect(ui.isListSupported).toBe(true);
+    });
+
+    it("lists existing torrents after authenticating", async () => {
+        const fetch = queueFetch(
+            mockResponse({ status: 200 }),
+            mockResponse({ status: 200, json: [
+                { hash: "AABBCC", name: "ubuntu", category: "movies", progress: 1 },
+                { hash: "DDEEFF", name: "debian", category: "", progress: 0.5 },
+            ] }),
+        );
+
+        const existing = await build().listExistingTorrents();
+        expect(fetch.mock.calls[0][0]).toBe("http://h:8080/api/v2/auth/login");
+        expect(fetch.mock.calls[1][0]).toBe("http://h:8080/api/v2/torrents/info");
+        expect(existing).toEqual([
+            { infoHash: "aabbcc", name: "ubuntu", label: "movies", isComplete: true },
+            { infoHash: "ddeeff", name: "debian", label: undefined, isComplete: false },
+        ]);
     });
 });

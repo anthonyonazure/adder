@@ -2,8 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Stub out the messaging module so we can observe dispatched torrents without
 // pulling in the whole service-worker dependency graph.
-const { dispatchPreAddTorrent } = vi.hoisted(() => ({ dispatchPreAddTorrent: vi.fn() }));
-vi.mock("../../src/util/messaging", () => ({ dispatchPreAddTorrent }));
+const { dispatchPreAddTorrent, openBulkAddForTab } = vi.hoisted(() => ({
+    dispatchPreAddTorrent: vi.fn(),
+    openBulkAddForTab: vi.fn(),
+}));
+vi.mock("../../src/util/messaging", () => ({ dispatchPreAddTorrent, openBulkAddForTab }));
 
 import { createContextMenu } from "../../src/util/context-menu";
 import { PreAddTorrentMessage, AddTorrentMessage } from "../../src/models/messages";
@@ -21,13 +24,26 @@ function lastClickListener() {
     return calls[calls.length - 1][0];
 }
 
-beforeEach(() => dispatchPreAddTorrent.mockClear());
+beforeEach(() => {
+    dispatchPreAddTorrent.mockClear();
+    openBulkAddForTab.mockClear();
+});
 
 describe("createContextMenu", () => {
-    it("creates only the parent menu for a single webui", () => {
+    it("creates the parent and bulk-add entries (no per-server submenu) for a single webui", () => {
         createContextMenu([webUi("a", "Server A")]);
         const created = (chrome.contextMenus.create as any).mock.calls.map((c: any[]) => c[0].id);
-        expect(created).toEqual(["server-main"]);
+        expect(created).toContain("server-main");
+        expect(created).toContain("bulk-add-from-page");
+        expect(created).not.toContain("server-0");
+        expect(created).not.toContain("server-all");
+    });
+
+    it("opens the bulk-add window on the bulk-add entry", () => {
+        createContextMenu([webUi("a", "Server A")]);
+        lastClickListener()(clickData("bulk-add-from-page"), tab);
+        expect(openBulkAddForTab).toHaveBeenCalledTimes(1);
+        expect(openBulkAddForTab).toHaveBeenCalledWith(tab);
     });
 
     it("creates per-server, separator and send-all entries for multiple webuis", () => {

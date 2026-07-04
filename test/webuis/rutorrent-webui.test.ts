@@ -56,5 +56,21 @@ describe("RuTorrentWebUI", () => {
         expect(ui.isLabelSupported).toBe(true);
         expect(ui.isDirSupported).toBe(true);
         expect(ui.isAddPausedSupported).toBe(true);
+        expect(ui.isListSupported).toBe(true);
+    });
+
+    it("lists existing torrents from the httprpc positional format", async () => {
+        // Positional fields: [4]=name, [5]=sizeBytes, [8]=bytesDone, [14]=custom1(label)
+        const complete = ["1", "0", "1", "2", "ubuntu.iso", "100", "", "", "100", "", "", "", "", "", "linux"];
+        const partial = ["1", "0", "1", "2", "debian.iso", "100", "", "", "50", "", "", "", "", "", "iso%20files"];
+        const fetch = queueFetch(mockResponse({ status: 200, json: { t: { "ABCDEF0123": complete, "99AABB": partial } } }));
+
+        const existing = await build().listExistingTorrents();
+        const [, opts] = fetch.mock.calls[0];
+        expect(opts.body).toBe("mode=list");
+        expect(existing).toEqual([
+            { infoHash: "abcdef0123", name: "ubuntu.iso", label: "linux", isComplete: true },
+            { infoHash: "99aabb", name: "debian.iso", label: "iso files", isComplete: false },
+        ]);
     });
 });

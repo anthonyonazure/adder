@@ -50,11 +50,30 @@ export abstract class TorrentWebUI {
     abstract get isDirSupported(): boolean;
     abstract get isAddPausedSupported(): boolean;
 
+    /**
+     * Whether this client exposes an API for listing the torrents it already
+     * has. Clients that override {@link listExistingTorrents} return true so the
+     * bulk-add UI can offer duplicate detection.
+     */
+    get isListSupported(): boolean {
+        return false;
+    }
+
     get isLabelDirChooserSupported(): boolean {
         return this.isLabelSupported || this.isDirSupported || this.isAddPausedSupported;
     }
 
     public abstract sendTorrent(torrent: Torrent, config: TorrentUploadConfig): Promise<TorrentAddingResult>;
+
+    /**
+     * Lists the torrents the client already knows about, for duplicate
+     * detection and label discovery. Returns null when the client has no list
+     * API. Implementations should resolve with an empty array (not throw) when
+     * the client is reachable but holds no torrents.
+     */
+    public listExistingTorrents(): Promise<ExistingTorrent[] | null> {
+        return Promise.resolve(null);
+    }
 
     createBaseUrl(): string {
         let portPart: string;
@@ -112,6 +131,15 @@ export interface TorrentAddingResult {
     success: boolean;
     httpResponseCode: number;
     httpResponseBody: string | null;
+}
+
+export interface ExistingTorrent {
+    /** BitTorrent v1 infohash, lowercase hex. */
+    infoHash: string;
+    name?: string;
+    label?: string;
+    /** True when the client reports the torrent as fully downloaded. */
+    isComplete?: boolean;
 }
 
 export interface AutoLabelDirSetting {

@@ -5,11 +5,12 @@ import bencode from "bencode";
 import { Buffer } from "buffer";
 import { executeMethodWrappedWithReferer } from "./cors-tricks";
 import { getBaseUrl } from "./utils";
+import { infoHashFromBlob, infoHashFromMagnet } from "./infohash";
 
 export async function downloadTorrent(url: string): Promise<Torrent> {
     return new Promise<Torrent>(async (resolve, reject) => {
         if (url.substring(0, 7) == "magnet:") {
-            resolve({ data: url, name: getTorrentNameFromMagnetLink(url), isMagnet: true });
+            resolve({ data: url, name: getTorrentNameFromMagnetLink(url), isMagnet: true, infoHash: infoHashFromMagnet(url) ?? undefined });
         } else {
             let response: Response;
             try {
@@ -33,6 +34,8 @@ export async function downloadTorrent(url: string): Promise<Torrent> {
                 return;
             };
 
+            const infoHash = await infoHashFromBlob(torrentBlob).catch(() => null);
+
             resolve({
                 data: torrentBlob,
                 name: parseNameFromDecodedTorrentData(decodedTorrentData) ?? getTorrentNameFromLink(url),
@@ -40,6 +43,7 @@ export async function downloadTorrent(url: string): Promise<Torrent> {
                 trackers: parseTrackersFromDecodedTorrentData(decodedTorrentData),
                 files: parseFilesFromDecodedTorrentData(decodedTorrentData),
                 isPrivate: parsePrivateFlagFromDecodedTorrentData(decodedTorrentData),
+                infoHash: infoHash ?? undefined,
             });
         }
     });
