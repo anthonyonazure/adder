@@ -42,6 +42,28 @@ export const PlaySoundMessage: IMessagable = {
     action: "playSound"
 }
 
+// --- Bulk add (multi-select) ---
+
+export const ScanPageForTorrents: IMessagable = {
+    action: "scanPageForTorrents"
+}
+
+export const GetBulkData: IMessagable = {
+    action: "getBulkData"
+}
+
+export const GetClientExistingTorrents: IMessagable = {
+    action: "getClientExistingTorrents"
+}
+
+export const ResolveInfoHashes: IMessagable = {
+    action: "resolveInfoHashes"
+}
+
+export const BulkAddTorrents: IMessagable = {
+    action: "bulkAddTorrents"
+}
+
 export interface IGetPreAddedTorrentAndSettingsResponse extends IMessagable {
     webUiSettings: WebUISettings;
     serializedTorrent: SerializedTorrent;
@@ -91,6 +113,77 @@ export interface IPlaySoundMessage extends IMessagable {
 
 interface IMessagable {
     action: string;
+}
+
+// --- Bulk add (multi-select) payloads ---
+
+/** A torrent/magnet link discovered on a page, offered for bulk selection. */
+export interface BulkCandidate {
+    url: string;
+    name: string;
+    isMagnet: boolean;
+    /** Present for magnets (parsed from the link); resolved on demand for .torrent files. */
+    infoHash?: string;
+}
+
+export interface IScanPageResponse {
+    candidates: BulkCandidate[];
+}
+
+export interface IGetBulkDataResponse {
+    candidates: BulkCandidate[];
+    webuis: WebUISettings[];
+    defaultWebUiId: string | null;
+}
+
+export interface IGetClientExistingTorrentsMessage extends IMessagable {
+    webUiId: string;
+}
+
+export interface IGetClientExistingTorrentsResponse {
+    /** False when the client has no list API or the list call failed. */
+    supported: boolean;
+    infoHashes: string[];
+    labels: string[];
+    error?: string;
+}
+
+export interface IResolveInfoHashesMessage extends IMessagable {
+    urls: string[];
+}
+
+export interface IResolveInfoHashesResponse {
+    /** Maps each requested URL to its infohash (lowercase hex), or null if unresolved. */
+    results: Record<string, string | null>;
+}
+
+export interface IBulkAddItem {
+    url: string;
+    name: string;
+    isMagnet: boolean;
+}
+
+export interface IBulkAddTorrentsMessage extends IMessagable {
+    webUiId: string;
+    items: IBulkAddItem[];
+    config: TorrentUploadConfig;
+    /** Persisted back to the client's remembered label/dir option lists, like single-add. */
+    labels?: string[];
+    directories?: string[];
+}
+
+export interface IBulkAddResultDetail {
+    name: string;
+    url: string;
+    success: boolean;
+    error?: string;
+}
+
+export interface IBulkAddTorrentsResponse {
+    total: number;
+    added: number;
+    failed: number;
+    details: IBulkAddResultDetail[];
 }
 
 

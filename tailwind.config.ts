@@ -3,6 +3,7 @@ module.exports = {
   darkMode: "media", // Automatically follow system preference
   content: [
     './src/popup/**/*.{js,ts,jsx,tsx,html}',
+    './src/bulk/**/*.{js,ts,jsx,tsx,html}',
   ],
   prefix: "",
   theme: {

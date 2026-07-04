@@ -1,5 +1,5 @@
 import { Torrent, TorrentUploadConfig } from "../models/torrent";
-import { TorrentAddingResult, TorrentWebUI } from "../models/webui";
+import { ExistingTorrent, TorrentAddingResult, TorrentWebUI } from "../models/webui";
 import { blobToBase64 } from "../util/converter";
 
 export class TransmissionWebUI extends TorrentWebUI {
@@ -87,6 +87,35 @@ export class TransmissionWebUI extends TorrentWebUI {
             }).catch(error => {
                 reject({ success: false, httpResponseCode: 0, httpResponseBody: error.message || null });
             });
+    }
+
+    public override get isListSupported(): boolean {
+        return true;
+    }
+
+    public override async listExistingTorrents(): Promise<ExistingTorrent[] | null> {
+        const sessionId = await this.fetchTransmissionSessionId();
+        const response = await this.fetch(this.createBaseUrl() + "/transmission/rpc", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json; charset=UTF-8",
+                "X-Transmission-Session-Id": sessionId
+            },
+            body: JSON.stringify({
+                method: "torrent-get",
+                arguments: { fields: ["hashString", "name", "percentDone", "labels"] }
+            })
+        });
+        const data = await response.json();
+        const torrents: any[] = data?.arguments?.torrents ?? [];
+        return torrents
+            .map((t: any) => ({
+                infoHash: String(t.hashString ?? "").toLowerCase(),
+                name: t.name,
+                label: Array.isArray(t.labels) && t.labels.length > 0 ? String(t.labels[0]) : undefined,
+                isComplete: typeof t.percentDone === "number" ? t.percentDone >= 1 : undefined,
+            }))
+            .filter((t: ExistingTorrent) => t.infoHash.length > 0);
     }
 
     get isLabelSupported(): boolean {

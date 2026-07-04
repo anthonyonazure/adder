@@ -1,5 +1,16 @@
 import { Torrent, TorrentUploadConfig } from "../models/torrent";
-import { TorrentAddingResult, TorrentWebUI } from "../models/webui";
+import { ExistingTorrent, TorrentAddingResult, TorrentWebUI } from "../models/webui";
+
+/**
+ * Field offsets in the array ruTorrent's httprpc plugin returns per torrent
+ * (`mode=list`). This ordering is stable across ruTorrent versions.
+ */
+const RUTORRENT_LIST_FIELD = {
+    name: 4,
+    sizeBytes: 5,
+    bytesDone: 8,
+    custom1Label: 14,
+} as const;
 
 export class RuTorrentWebUI extends TorrentWebUI {
     public override async sendTorrent(torrent: Torrent, config: TorrentUploadConfig): Promise<TorrentAddingResult> {
@@ -72,6 +83,49 @@ export class RuTorrentWebUI extends TorrentWebUI {
         }).catch(error => {
             reject({ success: false, httpResponseCode: 0, httpResponseBody: error.message || null });
         });
+    }
+
+    public override get isListSupported(): boolean {
+        return true;
+    }
+
+    public override async listExistingTorrents(): Promise<ExistingTorrent[] | null> {
+        const response = await this.fetch(this.createBaseUrl() + "/plugins/httprpc/action.php", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "mode=list"
+        });
+        const json = await response.json();
+        const table = json?.t ?? {};
+        const result: ExistingTorrent[] = [];
+        for (const hash of Object.keys(table)) {
+            const row = table[hash];
+            if (!Array.isArray(row)) {
+                continue;
+            }
+            const sizeBytes = Number(row[RUTORRENT_LIST_FIELD.sizeBytes]);
+            const bytesDone = Number(row[RUTORRENT_LIST_FIELD.bytesDone]);
+            result.push({
+                infoHash: hash.toLowerCase(),
+                name: typeof row[RUTORRENT_LIST_FIELD.name] === "string" ? row[RUTORRENT_LIST_FIELD.name] : undefined,
+                label: this.decodeLabel(row[RUTORRENT_LIST_FIELD.custom1Label]),
+                isComplete: Number.isFinite(sizeBytes) && Number.isFinite(bytesDone) && sizeBytes > 0
+                    ? bytesDone >= sizeBytes
+                    : undefined,
+            });
+        }
+        return result;
+    }
+
+    private decodeLabel(raw: unknown): string | undefined {
+        if (typeof raw !== "string" || raw.length === 0) {
+            return undefined;
+        }
+        try {
+            return decodeURIComponent(raw);
+        } catch {
+            return raw;
+        }
     }
 
     get isLabelSupported(): boolean {

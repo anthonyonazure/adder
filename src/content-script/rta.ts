@@ -1,13 +1,19 @@
 import { observe } from './mutations';
 import { RTASettings } from '../models/settings';
 import { deserializeSettings } from '../util/serializer';
-import { GetSettingsMessage, IPreAddTorrentMessage, IUpdateActionBadgeTextMessage, UpdateActionBadgeText } from '../models/messages';
+import { BulkCandidate, GetSettingsMessage, IPreAddTorrentMessage, IScanPageResponse, IUpdateActionBadgeTextMessage, ScanPageForTorrents, UpdateActionBadgeText } from '../models/messages';
 import { PreAddTorrentMessage } from '../models/messages';
 import { isMatchedByRegexes } from '../util/utils';
+import { getDefaultSettings } from '../util/settings-defaults';
+import { getTorrentNameFromLink, getTorrentNameFromMagnetLink } from '../util/parsers';
 
 
 let numFoundLinks: number;
+// Kept up to date whenever settings load, so the bulk-scan handler can match
+// links even when passive link-catching is disabled.
+let currentLinkRegexes: RegExp[] = getDefaultSettings().linkCatchingRegexes;
 loadSettingsAndRegisterActions();
+registerBulkScanListener();
 
 function loadSettingsAndRegisterActions(attemptNumber: number = 0): void {
     numFoundLinks = 0;
@@ -23,11 +29,58 @@ function loadSettingsAndRegisterActions(attemptNumber: number = 0): void {
             return;
         }
 
+        currentLinkRegexes = settings.linkCatchingRegexes;
+
         if (settings.linkCatchingEnabled) {
             registerLinks(settings.linkCatchingRegexes);
             registerForms(settings.linkCatchingRegexes);
         }
     });
+}
+
+function registerBulkScanListener(): void {
+    chrome.runtime.onMessage.addListener((message: any, _sender, sendResponse) => {
+        if (message?.action === ScanPageForTorrents.action) {
+            sendResponse({ candidates: scanPageForTorrents() } as IScanPageResponse);
+        }
+        return false; // response is synchronous
+    });
+}
+
+function scanPageForTorrents(): BulkCandidate[] {
+    const found = new Map<string, BulkCandidate>();
+
+    const consider = (url: string | null | undefined, linkText: string) => {
+        if (!url) {
+            return;
+        }
+        if (found.has(url)) {
+            return;
+        }
+        if (isMatchedByRegexes(url, currentLinkRegexes) || isMagnetLink(url)) {
+            found.set(url, toCandidate(url, linkText));
+        }
+    };
+
+    document.querySelectorAll('a[href]').forEach(a => {
+        const anchor = a as HTMLAnchorElement;
+        consider(anchor.href, (anchor.textContent ?? '').trim());
+    });
+    document.querySelectorAll('input,button').forEach(el => {
+        const form = (el as HTMLInputElement | HTMLButtonElement).form;
+        consider(form?.action, (el.textContent ?? '').trim());
+    });
+
+    return Array.from(found.values());
+}
+
+function toCandidate(url: string, linkText: string): BulkCandidate {
+    const isMagnet = isMagnetLink(url);
+    let name = linkText;
+    if (!name) {
+        name = isMagnet ? getTorrentNameFromMagnetLink(url) : getTorrentNameFromLink(url);
+    }
+    return { url, name, isMagnet };
 }
 
 function registerLinks(linkRegexes: RegExp[]): void {

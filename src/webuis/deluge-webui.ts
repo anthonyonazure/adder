@@ -1,5 +1,5 @@
 import { Torrent, TorrentUploadConfig } from "../models/torrent";
-import { TorrentAddingResult, TorrentWebUI } from "../models/webui";
+import { ExistingTorrent, TorrentAddingResult, TorrentWebUI } from "../models/webui";
 
 
 export class DelugeWebUI extends TorrentWebUI {
@@ -148,6 +148,34 @@ export class DelugeWebUI extends TorrentWebUI {
 
     private randomId(): number {
         return Math.floor(Math.random() * (Number.MAX_SAFE_INTEGER + 1));
+    }
+
+    public override get isListSupported(): boolean {
+        return true;
+    }
+
+    public override async listExistingTorrents(): Promise<ExistingTorrent[] | null> {
+        await this.authenticate();
+        const response = await this.fetch(this.createBaseUrl() + "/json", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                method: "web.update_ui",
+                params: [["name", "label", "progress"], {}],
+                id: this.randomId()
+            })
+        });
+        const json = await response.json();
+        const torrents = json?.result?.torrents ?? {};
+        return Object.keys(torrents).map(hash => {
+            const t = torrents[hash] ?? {};
+            return {
+                infoHash: hash.toLowerCase(),
+                name: t.name,
+                label: t.label || undefined,
+                isComplete: typeof t.progress === "number" ? t.progress >= 100 : undefined,
+            } as ExistingTorrent;
+        });
     }
 
     get isLabelSupported(): boolean {

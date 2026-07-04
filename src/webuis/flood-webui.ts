@@ -1,5 +1,5 @@
 import { Torrent, TorrentUploadConfig } from "../models/torrent";
-import { TorrentAddingResult, TorrentWebUI } from "../models/webui";
+import { ExistingTorrent, TorrentAddingResult, TorrentWebUI } from "../models/webui";
 import { blobToBase64 } from "../util/converter";
 
 export class FloodWebUI extends TorrentWebUI {
@@ -96,6 +96,26 @@ export class FloodWebUI extends TorrentWebUI {
             }
         }).catch(error => {
             reject({ success: false, httpResponseCode: 0, httpResponseBody: error.message || null });
+        });
+    }
+
+    public override get isListSupported(): boolean {
+        return true;
+    }
+
+    public override async listExistingTorrents(): Promise<ExistingTorrent[] | null> {
+        await this.authenticate();
+        const response = await this.fetch(this.createBaseUrl() + "/api/torrents", { method: "GET" });
+        const json = await response.json();
+        const torrents = json?.torrents ?? {};
+        return Object.keys(torrents).map(hash => {
+            const t = torrents[hash] ?? {};
+            return {
+                infoHash: String(hash).toLowerCase(),
+                name: t.name,
+                label: Array.isArray(t.tags) && t.tags.length > 0 ? String(t.tags[0]) : undefined,
+                isComplete: typeof t.percentComplete === "number" ? t.percentComplete >= 100 : undefined,
+            } as ExistingTorrent;
         });
     }
 
